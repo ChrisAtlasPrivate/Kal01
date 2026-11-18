@@ -249,7 +249,7 @@
 
 <script>
 /* Versionsnummer: bei jeder Änderung erhöhen, sie steht unten auf der Seite */
-const VERSION = "1.1 (18.11.2026)";
+const VERSION = "1.2 (18.11.2026)";
 document.getElementById("version").textContent = "Version " + VERSION;
 /* ================================================================
    BILDER: Standardmäßig werden die Dateien im Ordner "bilder" geladen:
@@ -266,7 +266,7 @@ const bildPfad = n => BILDER[n] || `bilder/tuer${String(n).padStart(2, "0")}.jpg
 
 /* ================================================================
    TÖNE: Beim Öffnen einer Tür wird die passende Datei aus dem Ordner
-   "toene" abgespielt: toene/tuer01.m4a bis toene/tuer24.m4a
+   "toene" abgespielt: toene/Tuer01.m4a bis toene/Tuer24.m4a
    Fehlt eine Datei, bleibt es bei dieser Tür still.
    Ausnahme Tür 24: Ohne eigene Datei erklingt „O Tannenbaum“.
    Abweichende Dateien hier eintragen, z. B.  6: "toene/nikolaus.m4a",
@@ -274,7 +274,7 @@ const bildPfad = n => BILDER[n] || `bilder/tuer${String(n).padStart(2, "0")}.jpg
 const TOENE = {
   // 6: "toene/nikolaus.m4a",
 };
-const tonPfad = n => TOENE[n] || `toene/tuer${String(n).padStart(2, "0")}.m4a`;
+const tonPfad = n => TOENE[n] || `toene/Tuer${String(n).padStart(2, "0")}.m4a`;
 
 /* Die Töne werden über dieselbe Audio-Technik abgespielt wie die Türgeräusche
    (Web Audio), weil iPhone und iPad normale Audio-Elemente nach einer
