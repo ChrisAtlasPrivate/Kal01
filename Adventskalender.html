@@ -112,11 +112,11 @@
     position: absolute; inset: 0;
     border-radius: 6px;
     overflow: hidden;
-    background: #2a0a0f;
+    background: #faf6ee;
     box-shadow: inset 0 3px 10px rgba(0,0,0,.7);
   }
   .slot.offen .inside { cursor: pointer; }
-  .inside img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .inside img { width: 100%; height: 100%; object-fit: contain; display: block; background: #faf6ee; }
 
   .door {
     position: absolute; inset: 0;
@@ -271,30 +271,43 @@ const TOENE = {
 };
 const tonPfad = n => TOENE[n] || `toene/tuer${String(n).padStart(2, "0")}.m4a`;
 
-let aktuellerTon = null; // { n, audio, timer }
+/* Ein einziger Player für alle Türen. play() wird direkt im Klick aufgerufen,
+   weil iOS Wiedergabe nur während der Berührung erlaubt. Die kurze Pause für das
+   Türknarzen entsteht, indem der Ton erst stumm startet und dann von vorn läuft. */
+const player = new Audio();
+player.preload = "auto";
+player.setAttribute("playsinline", "");
+let aktuellerTon = null; // { n, timer, fehler }
+player.addEventListener("error", () => {
+  if (aktuellerTon && player.getAttribute("src")) tonFehler(aktuellerTon);
+});
+
+function tonFehler(eintrag) {
+  if (eintrag.fehler || aktuellerTon !== eintrag) return;
+  eintrag.fehler = true;
+  clearTimeout(eintrag.timer);
+  if (eintrag.n === 24) spieleTannenbaum();
+}
+
 function spieleTon(n) {
   stoppeTon();
-  const audio = new Audio(tonPfad(n));
-  audio.preload = "auto";
-  const eintrag = { n, audio, timer: null, fehler: false };
-  const ersatz = () => {
-    if (eintrag.fehler) return;
-    eintrag.fehler = true;
-    if (n === 24 && aktuellerTon === eintrag) spieleTannenbaum();
-  };
-  audio.addEventListener("error", ersatz);
+  const eintrag = { n, timer: null, fehler: false };
+  aktuellerTon = eintrag;
+  player.muted = true;
+  player.src = tonPfad(n);
+  const p = player.play();
+  if (p && p.catch) p.catch(() => tonFehler(eintrag));
   eintrag.timer = setTimeout(() => {
     if (aktuellerTon !== eintrag || eintrag.fehler) return;
-    const p = audio.play();
-    if (p && p.catch) p.catch(ersatz);
+    try { player.currentTime = 0; } catch (e) {}
+    player.muted = false;
   }, 500); // nach dem Türknarzen
-  aktuellerTon = eintrag;
 }
 function stoppeTon() {
   if (aktuellerTon) {
     clearTimeout(aktuellerTon.timer);
-    try { aktuellerTon.audio.pause(); aktuellerTon.audio.currentTime = 0; } catch (e) {}
     aktuellerTon = null;
+    try { player.pause(); player.muted = true; } catch (e) {}
   }
   stoppeTannenbaum();
 }
