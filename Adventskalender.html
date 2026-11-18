@@ -190,6 +190,7 @@
     padding: .45rem 1rem;
     cursor: pointer;
   }
+  .version { margin: .5rem 0 0; font-size: .75rem; color: var(--muted); opacity: .7; }
   .reset:hover { color: var(--snow); border-color: var(--snow); }
   .reset:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 
@@ -232,6 +233,7 @@
 <main>
   <header>
     <h1>Adventskalender</h1>
+    <p class="version" id="version"></p>
   </header>
 
   <div class="board">
@@ -246,6 +248,9 @@
 </main>
 
 <script>
+/* Versionsnummer: bei jeder Änderung erhöhen, sie steht unten auf der Seite */
+const VERSION = "1.1 (18.11.2026)";
+document.getElementById("version").textContent = "Version " + VERSION;
 /* ================================================================
    BILDER: Standardmäßig werden die Dateien im Ordner "bilder" geladen:
    bilder/tuer01.jpg bis bilder/tuer24.jpg
@@ -271,43 +276,74 @@ const TOENE = {
 };
 const tonPfad = n => TOENE[n] || `toene/tuer${String(n).padStart(2, "0")}.m4a`;
 
-/* Ein einziger Player für alle Türen. play() wird direkt im Klick aufgerufen,
-   weil iOS Wiedergabe nur während der Berührung erlaubt. Die kurze Pause für das
-   Türknarzen entsteht, indem der Ton erst stumm startet und dann von vorn läuft. */
-const player = new Audio();
-player.preload = "auto";
-player.setAttribute("playsinline", "");
-let aktuellerTon = null; // { n, timer, fehler }
-player.addEventListener("error", () => {
-  if (aktuellerTon && player.getAttribute("src")) tonFehler(aktuellerTon);
-});
-
-function tonFehler(eintrag) {
-  if (eintrag.fehler || aktuellerTon !== eintrag) return;
-  eintrag.fehler = true;
-  clearTimeout(eintrag.timer);
-  if (eintrag.n === 24) spieleTannenbaum();
+/* Die Töne werden über dieselbe Audio-Technik abgespielt wie die Türgeräusche
+   (Web Audio), weil iPhone und iPad normale Audio-Elemente nach einer
+   Verzögerung blockieren. Die Datei der nächsten Tür wird vorab geladen. */
+const LOKAL = location.protocol === "file:"; // Web Audio kann lokal keine Dateien laden
+const tonCache = {};
+function ladeTon(n) {
+  if (LOKAL || !n) return Promise.resolve(null);
+  if (!(n in tonCache)) {
+    tonCache[n] = fetch(tonPfad(n))
+      .then(r => { if (!r.ok) throw new Error("fehlt"); return r.arrayBuffer(); })
+      .then(daten => new Promise((ok, fehler) => {
+        const ctx = audio();
+        if (!ctx) return fehler(new Error("kein Audio"));
+        ctx.decodeAudioData(daten, ok, fehler);
+      }))
+      .catch(() => { delete tonCache[n]; return null; });
+  }
+  return tonCache[n];
 }
+
+const player = new Audio(); // nur für lokal geöffnete Dateien
+let aktuellerTon = null;    // { n, quelle, gain, timer }
 
 function spieleTon(n) {
   stoppeTon();
-  const eintrag = { n, timer: null, fehler: false };
+  const eintrag = { n, quelle: null, gain: null, timer: null };
   aktuellerTon = eintrag;
-  player.muted = true;
-  player.src = tonPfad(n);
-  const p = player.play();
-  if (p && p.catch) p.catch(() => tonFehler(eintrag));
-  eintrag.timer = setTimeout(() => {
-    if (aktuellerTon !== eintrag || eintrag.fehler) return;
-    try { player.currentTime = 0; } catch (e) {}
-    player.muted = false;
-  }, 500); // nach dem Türknarzen
+
+  if (LOKAL) {
+    player.src = tonPfad(n);
+    player.onerror = () => { if (aktuellerTon === eintrag && n === 24) spieleTannenbaum(); };
+    eintrag.timer = setTimeout(() => {
+      if (aktuellerTon !== eintrag) return;
+      const p = player.play();
+      if (p && p.catch) p.catch(() => {});
+    }, 500);
+    return;
+  }
+
+  const ctx = audio();
+  const startZeit = ctx ? ctx.currentTime + 0.5 : 0; // nach dem Türknarzen
+  ladeTon(n).then(buffer => {
+    if (aktuellerTon !== eintrag) return;
+    if (!buffer || !ctx) { if (n === 24) spieleTannenbaum(); return; }
+    const quelle = ctx.createBufferSource();
+    quelle.buffer = buffer;
+    const gain = ctx.createGain();
+    quelle.connect(gain).connect(ctx.destination);
+    quelle.start(Math.max(startZeit, ctx.currentTime));
+    quelle.onended = () => { if (aktuellerTon === eintrag) aktuellerTon = null; };
+    eintrag.quelle = quelle; eintrag.gain = gain;
+  });
 }
+
 function stoppeTon() {
-  if (aktuellerTon) {
-    clearTimeout(aktuellerTon.timer);
-    aktuellerTon = null;
-    try { player.pause(); player.muted = true; } catch (e) {}
+  const e = aktuellerTon;
+  aktuellerTon = null;
+  if (e) {
+    clearTimeout(e.timer);
+    if (e.quelle && audioCtx) {
+      const t = audioCtx.currentTime;
+      try {
+        e.gain.gain.setValueAtTime(e.gain.gain.value, t);
+        e.gain.gain.linearRampToValueAtTime(0, t + 0.25);
+        e.quelle.stop(t + 0.3);
+      } catch (err) {}
+    }
+    if (LOKAL) { try { player.pause(); player.currentTime = 0; } catch (err) {} }
   }
   stoppeTannenbaum();
 }
@@ -601,6 +637,7 @@ function toggle(n, btn) {
   btn.setAttribute("aria-pressed", idx === -1 ? "true" : "false");
   btn.parentElement.classList.toggle("offen", idx === -1);
   speichere(state);
+  ladeTon(naechsteTuer()); // nächsten Ton vorab laden
 }
 
 document.getElementById("reset").addEventListener("click", () => {
@@ -696,6 +733,7 @@ function layout() {
 }
 
 layout();
+ladeTon(naechsteTuer());
 window.addEventListener("resize", () => { if (spalten() !== letzteSpalten) layout(); });
 
 /* Schneefall */
